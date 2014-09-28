@@ -27,6 +27,10 @@
 //bin/rione_player -team Ri-one -f conf/formations.conf -c conf/player.conf -num 1
 
 
+
+
+
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -38,6 +42,7 @@
 
 #include "action_chain_holder.h"
 #include "sample_field_evaluator.h"
+
 
 #include "soccer_role.h"
 
@@ -69,6 +74,10 @@
 #include <rcsc/action/view_synch.h>
 #include <rcsc/action/body_hold_ball.h>
 #include <rcsc/action/body_dribble.h>
+#include <rcsc/player/player_agent.h>
+#include <rcsc/player/player_predicate.h>
+
+#include <rcsc/player/player_evaluator.h>
 
 #include <rcsc/formation/formation.h>
 #include <rcsc/action/kick_table.h>
@@ -89,6 +98,7 @@
 #include <rcsc/common/player_param.h>
 #include <rcsc/common/audio_memory.h>
 #include <rcsc/common/say_message_parser.h>
+#include <rcsc/action/body_clear_ball.h> //importing the clear ball
 // #include <rcsc/common/free_message_parser.h>
 
 #include <rcsc/param/param_map.h>
@@ -99,6 +109,11 @@
 #include <string>
 #include <cstdlib>
 #include <vector> 
+#include <rcsc/math_util.h>
+#include <rcsc/timer.h>
+
+#include <cmath>
+#include <limits>
 
 using namespace rcsc;
 
@@ -841,6 +856,62 @@ SamplePlayer::BasicMove(PlayerAgent * agent){
 
     return true;
 }
+
+
+//code and required functions have been imported from rcsc/actions for clearing the ball
+
+
+        
+          bool
+          SamplePlayer::Clearball( PlayerAgent * agent )
+          {
+              // TODO:
+              // . if result free cycles will be same steps, choice by free angle width
+              // . check tackle
+
+              const WorldModel & wm = agent->world();
+              const ServerParam & param = ServerParam::i();
+
+
+              // enforce kick
+              if ( wm.existKickableOpponent() )
+              {
+                  agent->debugClient().addMessage( "ClearEnforce" );
+                  dlog.addText( Logger::CLEAR,
+                                __FILE__" (execute) exist kickable opponent" );
+                  return Body_KickOneStep( wm.ball().pos() + Vector2D( 10.0, 0.0 ), //clear always when ball in inside the 'D'
+                                           param.ballSpeedMax() ).execute( agent );
+              }
+
+              AngleDeg clear_angle = get_clear_course( wm );// tries to define the safest angle or safest course
+              Vector2D kick_target = wm.ball().pos() + Vector2D::polar2vector( 30.0, clear_angle ); // finds a target to clear the ball
+
+              agent->debugClient().addLine( wm.ball().pos(), kick_target );
+
+              if ( wm.gameMode().type() != GameMode::PlayOn
+                   || get_minimum_evaluation( wm.getPlayerCont( new OpponentOrUnknownPlayerPredicate( wm ) ), // enables a one step kick or a kick out
+                                              new DistFromPosPlayerEvaluator( wm.ball().pos() ) ) < 1.5 )
+              {
+                  agent->debugClient().addMessage( "Clear1" );
+                  dlog.addText( Logger::CLEAR,
+                                __FILE__" (execute) Clear 1 step kick. target=(%.1f %.1f)",
+                                kick_target.x, kick_target.y );
+                  return Body_KickOneStep( kick_target,
+                                           param.ballSpeedMax() ).execute( agent );
+              }
+              else
+              {
+                  agent->debugClient().addMessage( "ClearS" ); // enables a smart kick
+                  dlog.addText( Logger::CLEAR,
+                                __FILE__" (execute) Clear smart kick. target=(%.1f %.1f)",
+                                kick_target.x, kick_target.y );
+                  return Body_SmartKick( kick_target,
+                                         param.ballSpeedMax(),
+                                         std::max( 2.5, param.ballSpeedMax() * 0.85 ),
+                                         2 ).execute( agent );
+              }
+}                
+
 
 
 
